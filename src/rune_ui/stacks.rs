@@ -264,9 +264,9 @@ fn shortcut_stack_tabs(p: Paint, labels: &[&str], active: usize) -> El {
 fn notes_card(ui: &Ui, p: Paint) -> El {
     let pane = &ui.stacks;
     let Some(stack) = pane.snapshot.active_stack() else {
-        return raised(p, "stacks-notes");
+        return raised(p, "stacks-notes").role("list").label(tr("Notes"));
     };
-    let mut card = raised(p, "stacks-notes");
+    let mut card = raised(p, "stacks-notes").role("list").label(tr("Notes"));
     if stack.notes.is_empty() {
         card = card.child(
             col()

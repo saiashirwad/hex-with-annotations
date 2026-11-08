@@ -27,6 +27,7 @@ pub(super) const TRANSLATIONS: &[(&str, [&str; 6])] = &[
     ("Terminal paste shortcut", ["Skrót wklejania w terminalu", "终端粘贴快捷键", "端末貼り付けショートカット", "Kürzel für Terminal-Einfügen", "Atajo de pegado en terminal", "Комбінація вставлення в термінал"]),
     ("Another dictation shortcut that always pastes with Ctrl+Shift+V", ["Kolejny skrót dyktowania, który zawsze wkleja przez Ctrl+Shift+V", "另一个听写快捷键，始终以 Ctrl+Shift+V 粘贴", "常に Ctrl+Shift+V で貼り付ける、もう1つの音声入力ショートカット", "Ein weiteres Diktierkürzel, das immer mit Strg+Umschalt+V einfügt", "Otro atajo de dictado que siempre pega con Ctrl+Mayús+V", "Ще одна комбінація для диктування, що завжди вставляє через Ctrl+Shift+V"]),
     ("Stacks", ["Stosy", "堆栈", "スタック", "Stapel", "Pilas", "Стеки"]),
+    ("Notes", ["Notatki", "笔记", "メモ", "Notizen", "Notas", "Нотатки"]),
     ("Active stack", ["Aktywny stos", "当前堆栈", "現在のスタック", "Aktiver Stapel", "Pila activa", "Активний стек"]),
     ("No notes yet", ["Brak notatek", "还没有笔记", "メモはまだありません", "Noch keine Notizen", "Aún no hay notas", "Нотаток ще немає"]),
     ("Record a note", ["Zapisz notatkę", "记录笔记", "メモを録音", "Notiz aufnehmen", "Grabar una nota", "Записати нотатку"]),
