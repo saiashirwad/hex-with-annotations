@@ -1442,11 +1442,14 @@ fn finish_hotkey_dictation(
     Ok(finished)
 }
 
-/// The front app's selected text, read while it is still frontmost. `None`
-/// when Accessibility can't say, or nothing is selected: the note is then
-/// only what was said.
+/// The front app's selected text, read while it is still frontmost.
+/// Accessibility answers in a few milliseconds; when the app exposes no
+/// selection, its own Copy command fills in, with the clipboard restored.
+/// `None` when neither has anything: the note is then only what was said.
 fn stack_selection() -> Option<String> {
-    crate::dictation::context::frontmost_pid().and_then(crate::accessibility::selected_text)
+    let pid = crate::dictation::context::frontmost_pid()?;
+    crate::accessibility::selected_text(pid)
+        .or_else(|| crate::paste::copy_selection(Duration::from_millis(300)))
 }
 
 /// Whether Hex takes Escape from the app in front: only for a capture

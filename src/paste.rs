@@ -463,6 +463,36 @@ fn complete_paste(
     Ok(())
 }
 
+/// The front app's selected text through its own Copy command, for Labs ›
+/// Stacks: snapshot the clipboard, post ⌘C, wait up to `timeout` for the
+/// pasteboard to change, read the string, then put every captured flavor
+/// back. `None` when the app copies nothing; the clipboard is left alone.
+pub fn copy_selection(timeout: Duration) -> Option<String> {
+    let clipboard = NSPasteboard::generalPasteboard();
+    let snapshot = capture_clipboard(&clipboard).ok()?;
+    let before = clipboard.changeCount();
+    if let Err(error) = keyboard::post_command('c') {
+        tracing::debug!(%error, "could not send Copy for a stack note");
+        return None;
+    }
+    let deadline = Instant::now() + timeout;
+    loop {
+        if clipboard.changeCount() != before {
+            let text = clipboard
+                .stringForType(unsafe { NSPasteboardTypeString })
+                .map(|text| text.to_string());
+            if let Err(error) = restore_clipboard(&clipboard, &snapshot) {
+                tracing::warn!(%error, "could not restore the clipboard after reading a selection");
+            }
+            return text.filter(|text| !text.trim().is_empty());
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn capture_clipboard(clipboard: &NSPasteboard) -> Result<ClipboardSnapshot> {
     let capture_started = Instant::now();
     let pasteboard = create_pasteboard(&clipboard.name())?;

@@ -33,9 +33,12 @@ Stacks (Labs, macOS)                       // sketch-stacks
 ## What maps where
 
 - **Selection** — `accessibility::selected_text(pid)` reads the focused
-  element's `AXSelectedText`, bounded to one note's quote. The shortcut loop
-  reads it at the press, while the front app still owns focus, and keeps it
-  with the job (`recognition::stack_selection`).
+  element's `AXSelectedText`, bounded to one note's quote. When the app
+  exposes no selection, `paste::copy_selection` sends its Copy command,
+  waits up to 300 ms for the pasteboard, reads the string, and puts every
+  captured flavor back. The shortcut loop reads it at the press, while the
+  front app still owns focus, and keeps it with the job
+  (`recognition::stack_selection`).
 - **Speech** — the note shortcut is another `DictationHotkey` machine
   (`Shortcut::StackNote`), so it inherits hold/toggle, double-tap lock, the
   pre-roll, the release tail, the HUD, cancellation, and queue order. Its
@@ -65,9 +68,6 @@ Stacks (Labs, macOS)                       // sketch-stacks
   `request_keys`), but this branch starts with the spoken flow and the pane.
   The card should appear where the selection is, with the quote above a text
   field, and Enter/⇧Enter/Esc as Sendpoint has them.
-- **A ⌘C fallback when `AXSelectedText` says nothing** (terminals, some
-  Electron apps), restoring every clipboard flavor afterwards. The paster's
-  snapshot and restore machinery is the base.
 - **Windows and Linux selection adapters.** The store, pane, and Markdown are
   cross-platform already; only the selection read and the shortcut bindings
   are macOS. `on_this_os` keeps the lab off where it cannot work.
