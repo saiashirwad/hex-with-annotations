@@ -38,7 +38,9 @@ Stacks (Labs, macOS)                       // sketch-stacks
   waits up to 300 ms for the pasteboard, reads the string, and puts every
   captured flavor back. The shortcut loop reads it at the press, while the
   front app still owns focus, and keeps it with the job
-  (`recognition::stack_selection`).
+  (`recognition::stack_selection`). The fallback waits up to 300 ms before
+  the microphone opens, so an app without an AX selection can lose the first
+  moment of speech; the Accessibility path returns in a few milliseconds.
 - **Speech** — the note shortcut is another `DictationHotkey` machine
   (`Shortcut::StackNote`), so it inherits hold/toggle, double-tap lock, the
   pre-roll, the release tail, the HUD, cancellation, and queue order. Its
