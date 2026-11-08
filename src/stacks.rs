@@ -232,14 +232,14 @@ impl Stacks {
             Ok(bytes) => match serde_json::from_slice::<Saved>(&bytes) {
                 Ok(saved) if saved.version == VERSION => saved,
                 Ok(saved) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         version = saved.version,
                         "unsupported stacks version; keeping the file until the next change"
                     );
                     Saved::default()
                 }
                 Err(error) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         %error,
                         path = %self.path.display(),
                         "stacks file is malformed; the next change preserves it"
@@ -249,7 +249,7 @@ impl Stacks {
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => Saved::default(),
             Err(error) => {
-                tracing::warn!(%error, path = %self.path.display(), "could not read stacks");
+                tracing::debug!(%error, path = %self.path.display(), "could not read stacks");
                 Saved::default()
             }
         }
