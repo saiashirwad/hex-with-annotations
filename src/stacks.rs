@@ -272,8 +272,11 @@ impl Stacks {
         };
         if malformed {
             let backup = self.path.with_extension("json.corrupt");
-            if let Err(error) = fs::rename(&*self.path, &backup) {
-                tracing::warn!(%error, "could not preserve the malformed stacks file");
+            match fs::rename(&*self.path, &backup) {
+                Ok(()) => tracing::warn!(path = %backup.display(), "kept a malformed stacks file"),
+                Err(error) => {
+                    tracing::warn!(%error, "could not preserve the malformed stacks file")
+                }
             }
         }
         let json = serde_json::to_vec(saved).map_err(io::Error::other)?;
