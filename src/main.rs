@@ -65,6 +65,7 @@ mod rune_hud;
 mod rune_ui;
 #[cfg(all(target_os = "macos", hex_capture))]
 mod screenshots;
+mod stacks;
 #[cfg(target_os = "macos")]
 mod suppression;
 mod transcription;

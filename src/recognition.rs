@@ -6,6 +6,9 @@ use std::time::{Duration, Instant};
 
 use color_eyre::Result;
 
+mod hotkeys;
+
+use self::hotkeys::{CaptureTarget, Hotkeys, Shortcut};
 use crate::audio::CaptureInstant;
 use crate::audio::recording_environment::RecordingEnvironmentController;
 use crate::control::{CaptureAction, CaptureKind, CaptureSnapshot, ControlReply, PrintReply};
@@ -23,7 +26,7 @@ use crate::feedback::{self, Tone};
 use crate::parakeet::{
     DictationJobId, DictationJobStage, DictationWorker, PasteKind, TranscriptionTarget, WorkerEvent,
 };
-use crate::suppression::{DictationHotkey, DiscardCause, HotkeyAction, InputEvent, InputMonitor};
+use crate::suppression::{DictationHotkey, DiscardCause, HotkeyAction, InputMonitor};
 
 enum FinishResult {
     Discarded,
@@ -153,248 +156,6 @@ impl FinishingProgrammaticDictation {
         self.id == id && self.owner_token == owner_token
     }
 }
-
-/// One of the dictation shortcut machines.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Shortcut {
-    Dictation,
-    /// Labs › Second dictation shortcut: dictates as the dictation shortcut
-    /// does.
-    Second,
-    /// Dictate without processing.
-    Raw,
-    /// Labs › Caps Lock dictation: a press toggles a hands-free capture.
-    CapsLock,
-}
-
-impl Shortcut {
-    const ALL: [Self; 4] = [Self::Dictation, Self::Second, Self::Raw, Self::CapsLock];
-}
-
-/// The dictation shortcut machines: dictation, Labs › Second dictation
-/// shortcut while it is on and bound, and Dictate without processing while
-/// it is bound. One records at a time, and the one that started a capture
-/// finishes or cancels it.
-struct Hotkeys {
-    dictation: DictationHotkey,
-    second: Option<DictationHotkey>,
-    raw: Option<DictationHotkey>,
-    /// Labs › Caps Lock dictation's hands-free toggle. Its binding is empty:
-    /// presses arrive from the caps-lock worker, not the shortcut matcher.
-    caps_lock: DictationHotkey,
-    /// The recording (or the last) skips processing: the raw shortcut or
-    /// `hex dictation start --raw` started it.
-    raw_capture: bool,
-}
-
-impl Hotkeys {
-    fn machines(&mut self) -> impl Iterator<Item = &mut DictationHotkey> {
-        std::iter::once(&mut self.dictation)
-            .chain(self.second.as_mut())
-            .chain(self.raw.as_mut())
-            .chain(Some(&mut self.caps_lock))
-    }
-
-    fn machine(&self, shortcut: Shortcut) -> Option<&DictationHotkey> {
-        match shortcut {
-            Shortcut::Dictation => Some(&self.dictation),
-            Shortcut::Second => self.second.as_ref(),
-            Shortcut::Raw => self.raw.as_ref(),
-            Shortcut::CapsLock => Some(&self.caps_lock),
-        }
-    }
-
-    fn machine_mut(&mut self, shortcut: Shortcut) -> Option<&mut DictationHotkey> {
-        match shortcut {
-            Shortcut::Dictation => Some(&mut self.dictation),
-            Shortcut::Second => self.second.as_mut(),
-            Shortcut::Raw => self.raw.as_mut(),
-            Shortcut::CapsLock => Some(&mut self.caps_lock),
-        }
-    }
-
-    /// Whether a machine other than `shortcut`'s records.
-    fn recording_besides(&self, shortcut: Shortcut) -> bool {
-        Shortcut::ALL
-            .into_iter()
-            .filter(|other| *other != shortcut)
-            .filter_map(|other| self.machine(other))
-            .any(DictationHotkey::is_recording)
-    }
-
-    /// Whether a machine other than `shortcut`'s has a double-tap gesture
-    /// waiting to become a recording.
-    fn pending_gesture_besides(&self, shortcut: Shortcut) -> bool {
-        Shortcut::ALL
-            .into_iter()
-            .filter(|other| *other != shortcut)
-            .filter_map(|other| self.machine(other))
-            .any(DictationHotkey::has_pending_gesture)
-    }
-
-    fn any_recording(&self) -> bool {
-        Shortcut::ALL
-            .into_iter()
-            .filter_map(|shortcut| self.machine(shortcut))
-            .any(DictationHotkey::is_recording)
-    }
-
-    fn suppresses_recognition(&self) -> bool {
-        Shortcut::ALL
-            .into_iter()
-            .filter_map(|shortcut| self.machine(shortcut))
-            .any(DictationHotkey::suppresses_recognition)
-    }
-
-    /// Stands `shortcut`'s machine down, as when its start was refused.
-    fn suspend(&mut self, shortcut: Shortcut) {
-        match self.machine_mut(shortcut) {
-            Some(machine) => machine.suspend(),
-            None => self.dictation.suspend(),
-        };
-    }
-
-    /// Suspends every machine (never stopping at the first, as `any`
-    /// would) and reports whether one was recording.
-    fn suspend_all(&mut self) -> bool {
-        self.machines().filter_map(DictationHotkey::suspend).count() > 0
-    }
-
-    fn disarm_pending_gestures(&mut self) {
-        self.machines()
-            .for_each(DictationHotkey::disarm_pending_gesture);
-    }
-
-    fn track_key_state(&mut self, event: InputEvent, at: CaptureInstant) {
-        for machine in self.machines() {
-            machine.track_key_state(event, at);
-        }
-    }
-
-    fn recover_stale_keys(&mut self) {
-        self.machines()
-            .for_each(DictationHotkey::recover_stale_keys);
-    }
-
-    fn break_chords(&mut self, now: CaptureInstant) {
-        for machine in self.machines() {
-            machine.break_chord(now);
-        }
-    }
-
-    /// Applies the saved shortcut options. Unbinding the raw or second
-    /// shortcut (or turning the second's Labs toggle off) while it records
-    /// reports true: the caller cancels that recording.
-    fn configure(&mut self, now: CaptureInstant) -> bool {
-        let hotkeys = crate::app_settings::runtime_hotkeys();
-        let raw_cancelled = rebind(&mut self.raw, hotkeys.raw_dictation, now);
-        let second_cancelled = rebind(&mut self.second, hotkeys.second_dictation, now);
-        self.dictation.set_binding(hotkeys.dictation);
-        for machine in self.machines() {
-            machine.set_double_tap_enabled(crate::app_settings::double_tap_lock());
-            machine.set_double_tap_only(crate::app_settings::double_tap_only());
-            machine.set_toggle(crate::app_settings::shortcut_toggle());
-            machine.set_cancel(hotkeys.cancel);
-        }
-        // Caps Lock is hands-free by definition: its own machine always
-        // treats a press as Toggle, and Escape cancels it in every mode.
-        self.caps_lock
-            .set_binding(crate::app_settings::RuntimeHotkey::default());
-        self.caps_lock.set_double_tap_enabled(false);
-        self.caps_lock.set_double_tap_only(false);
-        self.caps_lock.set_toggle(true);
-        self.caps_lock.set_cancel(Some(
-            crate::app_settings::HotkeyBinding::cancel_default().runtime(),
-        ));
-        raw_cancelled || second_cancelled
-    }
-
-    /// A Caps Lock press, if the lab's machine should act on it. A hold
-    /// capture, another shortcut recording, or a pending double-tap gesture
-    /// is left undisturbed.
-    fn caps_lock_press(&mut self) -> Option<HotkeyAction> {
-        if self.recording_besides(Shortcut::CapsLock)
-            || self.pending_gesture_besides(Shortcut::CapsLock)
-        {
-            return None;
-        }
-        let action = self.caps_lock.caps_lock_toggle()?;
-        if action == HotkeyAction::Start {
-            self.raw_capture = false;
-        }
-        Some(action)
-    }
-
-    /// Stands a Caps Lock capture down when its lab turns off. Returns
-    /// whether one was recording so the caller can cancel it.
-    fn stop_caps_lock(&mut self) -> bool {
-        if self.caps_lock.is_recording() {
-            self.caps_lock.suspend();
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Feeds one input to every machine, and returns what each did with
-    /// which machine it was. A machine that starts while another records
-    /// stands down until its keys come up, and only the dictation machine
-    /// pastes.
-    fn process(&mut self, event: InputEvent, at: CaptureInstant) -> Vec<(Shortcut, HotkeyAction)> {
-        let mut actions = Vec::new();
-        for shortcut in Shortcut::ALL {
-            let others_recording = self.recording_besides(shortcut);
-            let Some(machine) = self.machine_mut(shortcut) else {
-                continue;
-            };
-            match machine.process(event, at) {
-                Some(HotkeyAction::Start) if others_recording => {
-                    machine.suspend();
-                }
-                Some(HotkeyAction::PasteLast | HotkeyAction::PasteMeeting)
-                    if shortcut != Shortcut::Dictation => {}
-                Some(action) => actions.push((shortcut, action)),
-                None => {}
-            }
-        }
-        actions
-    }
-
-    /// Stops whichever machine records, as a `stop` or `cancel` command does.
-    fn suspend_recording(&mut self) {
-        for machine in self.machines() {
-            if machine.is_recording() {
-                machine.suspend();
-            }
-        }
-    }
-}
-
-/// Creates, rebinds, or removes an optional shortcut machine. Returns
-/// whether a removed machine was recording.
-fn rebind(
-    slot: &mut Option<DictationHotkey>,
-    binding: Option<crate::app_settings::RuntimeHotkey>,
-    now: CaptureInstant,
-) -> bool {
-    match binding {
-        None => slot.take().is_some_and(|machine| machine.is_recording()),
-        Some(binding) => {
-            match slot.as_mut() {
-                Some(machine) => machine.set_binding(binding),
-                None => {
-                    *slot = Some(DictationHotkey::new(
-                        now,
-                        crate::app_settings::double_tap_lock(),
-                        binding,
-                    ));
-                }
-            }
-            false
-        }
-    }
-}
-
 pub fn listen(
     events: EventLog,
     device_override: Option<&str>,
@@ -428,9 +189,20 @@ pub fn listen(
             false,
             crate::app_settings::RuntimeHotkey::default(),
         ),
-        raw_capture: false,
+        stack_note: None,
+        capture_target: CaptureTarget::Paste,
+        stack_quote: None,
     };
     hotkeys.configure(CaptureInstant::now());
+    let stacks = match crate::stacks::Stacks::open_default() {
+        Ok(stacks) => Some(stacks),
+        Err(error) => {
+            tracing::warn!(%error, "stacks are unavailable; the shortcut records nothing");
+            None
+        }
+    };
+    // Each submitted stack note's quote, by job, until its transcript lands.
+    let mut stack_quotes = BTreeMap::<DictationJobId, String>::new();
     let hud = indicator;
     let caps_lock = crate::caps_lock_dictation::CapsLockDictation::new();
     let indicator = DictationSink {
@@ -525,7 +297,10 @@ pub fn listen(
         if !caps_lock_on && hotkeys.stop_caps_lock() {
             handle_hotkey_action(
                 HotkeyAction::Cancel,
-                false,
+                CaptureTarget::Paste,
+                hotkeys.stack_quote.take(),
+                &mut stack_quotes,
+                stacks.as_ref(),
                 input.captured_through(),
                 &input,
                 &dictation_worker,
@@ -939,7 +714,10 @@ pub fn listen(
         if hotkeys.configure(CaptureInstant::now()) {
             handle_hotkey_action(
                 HotkeyAction::Cancel,
-                false,
+                CaptureTarget::Paste,
+                hotkeys.stack_quote.take(),
+                &mut stack_quotes,
+                stacks.as_ref(),
                 input.captured_through(),
                 &input,
                 &dictation_worker,
@@ -964,7 +742,10 @@ pub fn listen(
         if hotkey_capture_suspended && hotkeys.suspend_all() {
             handle_hotkey_action(
                 HotkeyAction::Cancel,
-                false,
+                CaptureTarget::Paste,
+                hotkeys.stack_quote.take(),
+                &mut stack_quotes,
+                stacks.as_ref(),
                 input.captured_through(),
                 &input,
                 &dictation_worker,
@@ -998,7 +779,10 @@ pub fn listen(
             };
             let accepted = handle_hotkey_action(
                 action,
-                hotkeys.raw_capture,
+                hotkeys.capture_target,
+                hotkeys.stack_quote.take(),
+                &mut stack_quotes,
+                stacks.as_ref(),
                 at,
                 &input,
                 &dictation_worker,
@@ -1078,11 +862,27 @@ pub fn listen(
             }
             for (shortcut, action) in hotkeys.process(input_event, capture_at) {
                 if action == HotkeyAction::Start {
-                    hotkeys.raw_capture = shortcut == Shortcut::Raw;
+                    hotkeys.capture_target = match shortcut {
+                        Shortcut::Raw => CaptureTarget::RawPaste,
+                        Shortcut::StackNote => CaptureTarget::StackNote,
+                        _ => CaptureTarget::Paste,
+                    };
+                    // Read the front app's selection before the HUD shows,
+                    // so a note is about what was actually selected.
+                    hotkeys.stack_quote = (shortcut == Shortcut::StackNote)
+                        .then(stack_selection)
+                        .flatten();
                 }
+                let quote = match (action, hotkeys.capture_target) {
+                    (HotkeyAction::Finish, CaptureTarget::StackNote) => hotkeys.stack_quote.take(),
+                    _ => None,
+                };
                 let accepted = handle_hotkey_action(
                     action,
-                    hotkeys.raw_capture,
+                    hotkeys.capture_target,
+                    quote,
+                    &mut stack_quotes,
+                    stacks.as_ref(),
                     capture_at,
                     &input,
                     &dictation_worker,
@@ -1160,7 +960,51 @@ pub fn listen(
                     }
                     continue;
                 }
+                WorkerEvent::Completed {
+                    job_id,
+                    target: TranscriptionTarget::StackNote,
+                    result,
+                    ..
+                } => {
+                    let quote = stack_quotes.remove(&job_id).unwrap_or_default();
+                    let saved = match result {
+                        Ok(text) if text.trim().is_empty() => {
+                            events.dictation(DictationPhase::Discarded, "")?;
+                            indicator.send(DictationIndicatorEvent::JobCompleted {
+                                job_id: job_id.value(),
+                            });
+                            continue;
+                        }
+                        Ok(text) => match &stacks {
+                            Some(stacks) => stacks
+                                .add(crate::stacks::Note::new(quote, text))
+                                .map(drop)
+                                .map_err(|error| error.to_string()),
+                            None => Err("the stacks file is unavailable".to_string()),
+                        },
+                        Err(error) => Err(error),
+                    };
+                    match saved {
+                        Ok(()) => {
+                            feedback::play(Tone::DictationDone);
+                            events.dictation(DictationPhase::Noted, "")?;
+                            indicator.send(DictationIndicatorEvent::JobCompleted {
+                                job_id: job_id.value(),
+                            });
+                        }
+                        Err(error) => {
+                            feedback::play(Tone::Error);
+                            events.dictation(DictationPhase::Failed(error.clone()), "")?;
+                            indicator.send(DictationIndicatorEvent::JobFailed {
+                                job_id: job_id.value(),
+                                message: Some(error),
+                            });
+                        }
+                    }
+                    continue;
+                }
                 WorkerEvent::Cancelled { job_id } => {
+                    stack_quotes.remove(&job_id);
                     if let Some(finishing) = programmatic_results.remove(&job_id) {
                         finish_with_result(
                             finishing.id,
@@ -1427,7 +1271,10 @@ fn cancel_programmatic_capture(
 #[allow(clippy::too_many_arguments)]
 fn handle_hotkey_action(
     action: HotkeyAction,
-    raw: bool,
+    target: CaptureTarget,
+    quote: Option<String>,
+    stack_quotes: &mut BTreeMap<DictationJobId, String>,
+    stacks: Option<&crate::stacks::Stacks>,
     action_at: CaptureInstant,
     dictation: &DictationAudio,
     worker: &DictationWorker,
@@ -1464,7 +1311,9 @@ fn handle_hotkey_action(
             indicator,
             release_while_idle,
             None,
-            raw,
+            target,
+            quote,
+            stack_quotes,
         )
         .map(drop),
         HotkeyAction::Discard(_) | HotkeyAction::Cancel | HotkeyAction::CancelShortcut => {
@@ -1484,13 +1333,41 @@ fn handle_hotkey_action(
                 indicator,
             )
         }
-        HotkeyAction::PasteLast | HotkeyAction::PasteMeeting => {
+        HotkeyAction::PasteLast | HotkeyAction::PasteMeeting | HotkeyAction::PasteStack => {
             // The paste chord's modifier press started a provisional capture.
             feedback::retract_start();
             dictation.cancel()?;
             let paste_result = match action {
                 HotkeyAction::PasteLast => worker.paste_last(),
                 HotkeyAction::PasteMeeting => worker.paste_meeting(),
+                HotkeyAction::PasteStack => {
+                    // A note still transcribing lands after any snapshot
+                    // read now; wait for it rather than paste without it.
+                    if worker.pending_count() > 0 {
+                        return Ok(true);
+                    }
+                    let snapshot = stacks.map(crate::stacks::Stacks::snapshot);
+                    let active = snapshot.as_ref().map(|snapshot| snapshot.active);
+                    let text = snapshot
+                        .as_ref()
+                        .map(|snapshot| snapshot.markdown(snapshot.active))
+                        .unwrap_or_default();
+                    // An empty stack has nothing to say and no tone to play.
+                    if text.is_empty() {
+                        Ok(())
+                    } else {
+                        let pasted = worker.paste_stack(text);
+                        // The stack empties once its paste is under way, as
+                        // Sendpoint's does; a full queue leaves it whole.
+                        if pasted.is_ok()
+                            && let (Some(stacks), Some(active)) = (stacks, active)
+                            && let Err(error) = stacks.clear_at(active)
+                        {
+                            tracing::warn!(%error, "could not clear the pasted stack");
+                        }
+                        pasted
+                    }
+                }
                 _ => unreachable!(),
             };
             if let Err(error) = paste_result {
@@ -1515,22 +1392,34 @@ fn finish_hotkey_dictation(
     indicator: DictationSink<'_>,
     release_while_idle: bool,
     print: Option<PrintReply>,
-    raw: bool,
+    target: CaptureTarget,
+    quote: Option<String>,
+    stack_quotes: &mut BTreeMap<DictationJobId, String>,
 ) -> Result<FinishResult> {
     if dictation.become_intentional(action_at)? && release_while_idle {
         feedback::play(Tone::DictationStart);
     }
+    let raw = target == CaptureTarget::RawPaste;
     let finished = match print {
+        None if target == CaptureTarget::StackNote => finish_dictation_with(
+            dictation,
+            action_at,
+            POST_RELEASE_TAIL,
+            |clip| {
+                let job_id = worker.transcribe(clip, target.transcription(), context.clone())?;
+                stack_quotes.insert(job_id, quote.unwrap_or_default());
+                Ok(job_id)
+            },
+            device,
+            events,
+            indicator,
+        )?,
         None => finish_dictation(
             dictation,
             action_at,
             POST_RELEASE_TAIL,
             worker,
-            if raw {
-                TranscriptionTarget::RawPaste
-            } else {
-                TranscriptionTarget::Paste
-            },
+            target.transcription(),
             context,
             device,
             events,
@@ -1551,6 +1440,13 @@ fn finish_hotkey_dictation(
     }
     emit_engine_state(events, false, worker, device)?;
     Ok(finished)
+}
+
+/// The front app's selected text, read while it is still frontmost. `None`
+/// when Accessibility can't say, or nothing is selected: the note is then
+/// only what was said.
+fn stack_selection() -> Option<String> {
+    crate::dictation::context::frontmost_pid().and_then(crate::accessibility::selected_text)
 }
 
 /// Whether Hex takes Escape from the app in front: only for a capture
@@ -1635,6 +1531,8 @@ fn control_dictation(
 ) -> Result<ControlReply> {
     let recording = hotkeys.any_recording();
     let device = input.device_name();
+    // A control capture is never a stack note, so it has no quote to keep.
+    let mut stack_quotes = BTreeMap::new();
     let start = match action {
         CaptureAction::Start => true,
         CaptureAction::Stop => false,
@@ -1643,7 +1541,10 @@ fn control_dictation(
             hotkeys.suspend_recording();
             handle_hotkey_action(
                 HotkeyAction::CancelShortcut,
-                false,
+                CaptureTarget::Paste,
+                None,
+                &mut stack_quotes,
+                None,
                 input.captured_through(),
                 input,
                 worker,
@@ -1669,10 +1570,18 @@ fn control_dictation(
                     "the dictation shortcut is held; release it and try again",
                 ));
             }
-            hotkeys.raw_capture = raw;
+            hotkeys.capture_target = if raw {
+                CaptureTarget::RawPaste
+            } else {
+                CaptureTarget::Paste
+            };
+            hotkeys.stack_quote = None;
             let accepted = handle_hotkey_action(
                 HotkeyAction::Start,
-                raw,
+                hotkeys.capture_target,
+                None,
+                &mut stack_quotes,
+                None,
                 capture_boundary(input, release_while_idle),
                 input,
                 worker,
@@ -1709,7 +1618,9 @@ fn control_dictation(
                 indicator,
                 release_while_idle,
                 print,
-                hotkeys.raw_capture,
+                hotkeys.capture_target,
+                None,
+                &mut stack_quotes,
             )?;
             match finished {
                 FinishResult::Discarded | FinishResult::Silent if printing => {
@@ -1954,7 +1865,7 @@ fn handle_dictation_event(
                 TranscriptionTarget::Print | TranscriptionTarget::RawPrint => {
                     DictationPhase::Printed
                 }
-                TranscriptionTarget::Service => return Ok(()),
+                TranscriptionTarget::Service | TranscriptionTarget::StackNote => return Ok(()),
             };
             feedback::play(Tone::DictationDone);
             events.processed_dictation(phase, text, processing)?;
@@ -2007,6 +1918,7 @@ fn handle_dictation_event(
             let phase = match kind {
                 PasteKind::LastTranscript => DictationPhase::Repasted,
                 PasteKind::MeetingDelta => DictationPhase::MeetingPasted,
+                PasteKind::Stack => DictationPhase::Pasted,
             };
             events.dictation(phase, text)?;
         }
@@ -2023,6 +1935,7 @@ fn handle_dictation_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::suppression::InputEvent;
 
     /// Labs › Second dictation shortcut (issue 627): each shortcut follows
     /// the same double-tap lock, the one that started a capture finishes
@@ -2049,8 +1962,10 @@ mod tests {
             dictation: DictationHotkey::new(base, true, option),
             second: Some(DictationHotkey::new(base, true, control)),
             raw: None,
+            stack_note: None,
             caps_lock: DictationHotkey::new(base, false, RuntimeHotkey::default()),
-            raw_capture: false,
+            capture_target: CaptureTarget::Paste,
+            stack_quote: None,
         };
         let mut press = |flags: u64, ms: u64| hotkeys.process(InputEvent::Flags(flags), at(ms));
         const START: HotkeyAction = HotkeyAction::Start;
@@ -2082,6 +1997,47 @@ mod tests {
         assert!(!hotkeys.any_recording());
     }
 
+    /// Labs › Stacks' note shortcut is a dictation machine like the others:
+    /// the press that starts it also finishes it.
+    #[test]
+    fn the_stack_note_shortcut_starts_and_finishes_its_capture() {
+        use crate::app_settings::{COMMAND_KEY_MASK, HotkeyModifiers, ModifierSide, RuntimeHotkey};
+        let base = CaptureInstant::from_nanos(60_000_000_000);
+        let at = |ms: u64| base + Duration::from_millis(ms);
+        let command = RuntimeHotkey {
+            modifiers: HotkeyModifiers {
+                command: Some(ModifierSide::Either),
+                ..HotkeyModifiers::default()
+            },
+            key_code: None,
+        };
+        let option = RuntimeHotkey {
+            modifiers: HotkeyModifiers::option(),
+            key_code: None,
+        };
+        let mut hotkeys = Hotkeys {
+            dictation: DictationHotkey::new(base, true, option),
+            second: None,
+            raw: None,
+            stack_note: Some(DictationHotkey::new(base, true, command)),
+            caps_lock: DictationHotkey::new(base, false, RuntimeHotkey::default()),
+            capture_target: CaptureTarget::Paste,
+            stack_quote: None,
+        };
+        let mut press = |flags: u64, ms: u64| hotkeys.process(InputEvent::Flags(flags), at(ms));
+        assert_eq!(
+            press(COMMAND_KEY_MASK, 0),
+            [(Shortcut::StackNote, HotkeyAction::Start)]
+        );
+        assert_eq!(press(0, 100), [(Shortcut::StackNote, HotkeyAction::Finish)]);
+        assert_eq!(
+            press(COMMAND_KEY_MASK, 400),
+            [(Shortcut::StackNote, HotkeyAction::Start)]
+        );
+        assert_eq!(press(0, 700), [(Shortcut::StackNote, HotkeyAction::Finish)]);
+        assert!(!hotkeys.any_recording());
+    }
+
     fn caps_lock_hotkeys(
         base: CaptureInstant,
         dictation: crate::app_settings::RuntimeHotkey,
@@ -2096,8 +2052,10 @@ mod tests {
             dictation: DictationHotkey::new(base, false, dictation),
             second: None,
             raw: None,
+            stack_note: None,
             caps_lock,
-            raw_capture: false,
+            capture_target: CaptureTarget::Paste,
+            stack_quote: None,
         }
     }
 

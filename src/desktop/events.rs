@@ -121,6 +121,8 @@ pub enum DictationPhase {
     Pasted,
     /// `hex dictation stop --print` received the text instead of a paste.
     Printed,
+    /// Labs › Stacks: the text joined the active stack as a note.
+    Noted,
     Edited,
     VoiceAction,
     // Retained so activity readers can decode records written by older releases.

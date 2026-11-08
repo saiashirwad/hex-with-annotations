@@ -287,6 +287,13 @@ pub(super) const SCENES: &[Scene] = &[
     }),
     // macOS and Windows surfaces, from preview data (see `platform`).
     ("mac-settings", |ui| *ui = mac_fixture()),
+    // Labs › Stacks: two notes in the first stack.
+    ("mac-stacks", |ui| {
+        *ui = mac_fixture();
+        ui.settings.labs.stacks = true;
+        ui.stacks = stacks::StacksPane::fixture();
+        ui.pane = Pane::Stacks;
+    }),
     // The microphone row following a recorded voice (`--video`), and with
     // the microphone released while idle, when no audio arrives.
     ("mac-settings-mic-level", |ui| {

@@ -39,7 +39,9 @@ impl PracticeFeed {
                     DictationPhase::Transcribing => Observation::Transcribing,
                     DictationPhase::Discarded => Observation::Discarded,
                     DictationPhase::Cancelled => Observation::Cancelled,
-                    DictationPhase::Pasted | DictationPhase::Edited => Observation::Pasted,
+                    DictationPhase::Pasted | DictationPhase::Noted | DictationPhase::Edited => {
+                        Observation::Pasted
+                    }
                     DictationPhase::Failed(_) => Observation::Failed,
                     _ => return None,
                 }),

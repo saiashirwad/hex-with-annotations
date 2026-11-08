@@ -63,6 +63,9 @@ use crate::transcription::preparation::TranscriptionPreparation;
 
 mod activation;
 mod control;
+mod shortcut_target;
+
+pub(crate) use shortcut_target::ShortcutTarget;
 mod launch;
 mod main_menu;
 pub(crate) mod status_item;
@@ -122,26 +125,6 @@ pub(crate) enum Request {
     CancelModel,
     /// The window saved `settings.json`; adopt it.
     ReloadSettings,
-}
-
-/// A shortcut the listener registers.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum ShortcutTarget {
-    #[default]
-    Dictation,
-    PasteLast,
-    #[cfg(hex_capture)]
-    Capture,
-    /// Labs › Annotate 15 s replay shortcut.
-    #[cfg(hex_capture)]
-    CaptureReplay,
-    RawDictation,
-    /// Labs › Second dictation shortcut.
-    SecondDictation,
-    /// Toggle mode's cancel shortcut.
-    Cancel,
-    /// Labs › Screenshots.
-    Screenshot,
 }
 
 /// What the runtime last published for the window and the menu bar.

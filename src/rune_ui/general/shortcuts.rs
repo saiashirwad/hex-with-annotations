@@ -33,9 +33,17 @@ pub(in crate::rune_ui) fn shortcut_rows(
     let terminal = target == ShortcutTarget::TerminalPaste;
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let terminal = false;
+    #[cfg(target_os = "macos")]
+    let stack = matches!(
+        target,
+        ShortcutTarget::StackNote | ShortcutTarget::StackPaste
+    );
+    #[cfg(not(target_os = "macos"))]
+    let stack = false;
     let optional = second
         || typed_text
         || terminal
+        || stack
         || matches!(
             target,
             ShortcutTarget::PasteLast | ShortcutTarget::RawDictation
@@ -53,6 +61,10 @@ pub(in crate::rune_ui) fn shortcut_rows(
                     ShortcutTarget::TypedText => settings.typed_text_hotkey = None,
                     _ if second => settings.second_dictation_hotkey = None,
                     _ if terminal => settings.terminal_paste_hotkey = None,
+                    #[cfg(target_os = "macos")]
+                    ShortcutTarget::StackNote => settings.stack_note_hotkey = None,
+                    #[cfg(target_os = "macos")]
+                    ShortcutTarget::StackPaste => settings.stack_paste_hotkey = None,
                     _ => settings.paste_last_hotkey = None,
                 });
             },

@@ -11,6 +11,7 @@ use super::controls::{
     keycap, note, pulsing_dot, section, select, setting_row, status_dot,
 };
 use super::host;
+pub(super) use super::shortcut_rule::hotkey_key;
 use super::{Menu, Request, Service, ShortcutTarget, Ui};
 use crate::app_settings::{
     AppSettings, HotkeyBinding, HotkeyKey, HotkeyModifiers, KeyboardModelChoice, ModifierSide,
@@ -407,6 +408,10 @@ pub(super) fn conflicts(
         ShortcutTarget::TerminalPaste => HotkeySlot::TerminalPaste,
         #[cfg(target_os = "macos")]
         ShortcutTarget::Screenshot => HotkeySlot::Screenshot,
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::StackNote => HotkeySlot::StackNote,
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::StackPaste => HotkeySlot::StackPaste,
     };
     settings.hotkey_in_use(slot, binding)
 }
@@ -445,6 +450,10 @@ pub(super) fn binding(settings: &AppSettings, target: ShortcutTarget) -> Option<
         ShortcutTarget::TerminalPaste => settings.terminal_paste_hotkey.as_ref(),
         #[cfg(target_os = "macos")]
         ShortcutTarget::Screenshot => Some(&settings.screenshots.hotkey),
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::StackNote => settings.stack_note_hotkey.as_ref(),
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::StackPaste => settings.stack_paste_hotkey.as_ref(),
     }
 }
 
@@ -470,6 +479,10 @@ pub(super) fn set_binding(
         ShortcutTarget::TerminalPaste => settings.terminal_paste_hotkey = Some(binding),
         #[cfg(target_os = "macos")]
         ShortcutTarget::Screenshot => settings.screenshots.hotkey = binding,
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::StackNote => settings.stack_note_hotkey = Some(binding),
+        #[cfg(target_os = "macos")]
+        ShortcutTarget::StackPaste => settings.stack_paste_hotkey = Some(binding),
     }
 }
 
@@ -792,7 +805,10 @@ fn portal_grant(ui: &Ui, target: ShortcutTarget) -> Option<&DesktopGrantedShortc
         ShortcutTarget::CaptureReplay => return None,
         // macOS has no shortcuts portal.
         #[cfg(target_os = "macos")]
-        ShortcutTarget::SecondDictation | ShortcutTarget::Screenshot => return None,
+        ShortcutTarget::SecondDictation
+        | ShortcutTarget::Screenshot
+        | ShortcutTarget::StackNote
+        | ShortcutTarget::StackPaste => return None,
     };
     granted.iter().find(|shortcut| shortcut.name == name)
 }
@@ -1227,28 +1243,6 @@ const RECORDER_CAP_INSET: f32 = 3.0;
 /// above and below them their shadows keep inside that clip.
 const HELD_FADE: f32 = 8.0;
 const HELD_SHADOW_ROOM: f32 = (RECORDER_HEIGHT - KeySize::Small.height()) / 2.0;
-
-/// The recorder's key for `target`.
-pub(super) fn hotkey_key(target: ShortcutTarget) -> &'static str {
-    match target {
-        ShortcutTarget::Dictation => "dictation-hotkey",
-        ShortcutTarget::PasteLast => "paste-last-hotkey",
-        ShortcutTarget::RawDictation => "raw-dictation-hotkey",
-        #[cfg(target_os = "linux")]
-        ShortcutTarget::TypedText => "typed-text-hotkey",
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        ShortcutTarget::TerminalPaste => "terminal-paste-hotkey",
-        ShortcutTarget::Cancel => "cancel-hotkey",
-        #[cfg(hex_capture)]
-        ShortcutTarget::Capture => "capture-hotkey",
-        #[cfg(all(hex_capture, target_os = "macos"))]
-        ShortcutTarget::CaptureReplay => "capture-replay-hotkey",
-        #[cfg(target_os = "macos")]
-        ShortcutTarget::SecondDictation => "second-dictation-hotkey",
-        #[cfg(target_os = "macos")]
-        ShortcutTarget::Screenshot => "screenshot-hotkey",
-    }
-}
 
 /// What `target`'s recorder shows now.
 pub(super) fn face(ui: &Ui, target: ShortcutTarget) -> Face {

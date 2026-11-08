@@ -63,6 +63,7 @@ mod sidebar;
 mod sidebar_update;
 mod sound_sets;
 mod spark;
+mod stacks;
 #[cfg(target_os = "macos")]
 pub(crate) mod story_link;
 mod vocabulary;
@@ -679,6 +680,8 @@ pub(crate) struct Ui {
     duck_volume_drag: Option<f32>,
     models: models::Models,
     history: history::HistoryPane,
+    /// Labs › Stacks: the quotes and notes kept on this computer.
+    stacks: stacks::StacksPane,
     modes: modes::ModesPane,
     output: output::OutputPane,
     picker: picker::Picker,
@@ -752,6 +755,7 @@ impl Ui {
             });
         }
         ui.history = history::HistoryPane::shared(store);
+        ui.stacks = stacks::StacksPane::open();
         ui.output = output::OutputPane::shuffled();
         ui.modes.load_personal_commands();
         ui.platform.developer =
@@ -795,6 +799,7 @@ impl Ui {
             duck_volume_drag: None,
             models: models::Models::default(),
             history: history::HistoryPane::default(),
+            stacks: stacks::StacksPane::default(),
             modes,
             output: output::OutputPane::default(),
             picker: picker::Picker::default(),
@@ -1121,6 +1126,9 @@ impl Ui {
         self.pane = pane;
         match pane {
             Pane::History => self.history.reload(),
+            Pane::Stacks => {
+                self.stacks.poll(true);
+            }
             Pane::HudLab => self.ask(platform::PlatformRequest::ConfigureHud(self.platform.hud)),
             #[cfg(hex_capture)]
             Pane::Annotate => self.ask(platform::PlatformRequest::Scrawl(
@@ -1261,6 +1269,7 @@ fn poll(ui: &mut Ui, clock: f64, tx: &mut Tx) -> bool {
             && ui.window.as_ref().is_some_and(rune::AppHandle::is_visible),
     );
     changed |= ui.history.poll(ui.pane == Pane::History);
+    changed |= ui.stacks.poll(ui.pane == Pane::Stacks && !ui.labs_open);
     if ui.pane == Pane::Output && !ui.labs_open {
         changed |= output::poll(ui, clock, tx);
     }
@@ -1379,6 +1388,7 @@ fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
         Pane::Output => (Vec::new(), output::pane(ui, p, cx.is_reduced_motion())),
         Pane::Modes => modes::pane(ui, p, &mut layer),
         Pane::History => history::pane(ui, p, &mut layer),
+        Pane::Stacks => (stacks::actions(ui, p), stacks::pane(ui, p)),
         Pane::Meetings => meetings::pane(ui, p, &mut layer),
         #[cfg(hex_capture)]
         Pane::Annotate => (Vec::new(), scrawl::pane(ui, p, &mut layer)),

@@ -65,6 +65,8 @@ pub(super) enum Pane {
     /// Recorded calls and their settings, or the opt-in (macOS beta).
     Meetings,
     History,
+    /// Labs › Stacks (macOS): quotes and spoken notes collected in stacks.
+    Stacks,
     /// Annotate (Scrawl's captures inside Hex): the switch, shortcuts,
     /// permission, transcriber, folder, retention, and Scrawl's own app.
     /// Dev builds, macOS and Linux only.
@@ -87,6 +89,7 @@ impl Pane {
         Pane::Modes,
         Pane::Meetings,
         Pane::History,
+        Pane::Stacks,
         #[cfg(hex_capture)]
         Pane::Annotate,
         Pane::VoiceFilter,
@@ -98,6 +101,9 @@ impl Pane {
         let caps = ui.platform.caps;
         match self {
             Pane::Modes | Pane::HudLab | Pane::Activity => false,
+            Pane::Stacks => {
+                cfg!(target_os = "macos") && crate::labs::Feature::Stacks.on(&ui.settings)
+            }
             Pane::Meetings => caps.meetings && meetings::available(ui),
             // On from Labs (dev builds), or while its driver is installed.
             Pane::VoiceFilter => caps.fun && fun::running(ui),
@@ -113,6 +119,7 @@ impl Pane {
             Pane::Output => tr("Output"),
             Pane::Modes => tr("Modes"),
             Pane::History => tr("History"),
+            Pane::Stacks => tr("Stacks"),
             Pane::Meetings => tr("Meetings"),
             #[cfg(hex_capture)]
             Pane::Annotate => tr("Annotate"),
@@ -128,6 +135,7 @@ impl Pane {
             Pane::Output => "nav-output",
             Pane::Modes => "nav-modes",
             Pane::History => "nav-history",
+            Pane::Stacks => "nav-stacks",
             Pane::Meetings => "nav-meetings",
             #[cfg(hex_capture)]
             Pane::Annotate => "nav-annotate",
@@ -143,6 +151,7 @@ impl Pane {
             Pane::Output => &OUTPUT_ICON,
             Pane::Modes => &MODES_ICON,
             Pane::History => &HISTORY_ICON,
+            Pane::Stacks => &super::stacks::STACKS_ICON,
             Pane::Meetings => &MEETINGS_ICON,
             #[cfg(hex_capture)]
             Pane::Annotate => &SCRAWL_ICON,

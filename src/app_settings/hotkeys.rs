@@ -751,6 +751,19 @@ impl HotkeyBinding {
         binding
     }
 
+    /// Control-Option-N (Labs › Stacks): what a note on the front app's
+    /// selection is recorded with. The key follows the layout, as every
+    /// letter shortcut does.
+    pub fn stack_note_default() -> Self {
+        Self::chord(HotkeyModifiers::control_option(), "n")
+    }
+
+    /// Control-Option-P (Labs › Stacks): paste the active stack as Markdown
+    /// and clear it.
+    pub fn stack_paste_default() -> Self {
+        Self::chord(HotkeyModifiers::control_option(), "p")
+    }
+
     /// Escape, with no modifier.
     pub fn cancel_default() -> Self {
         #[cfg(target_os = "macos")]
@@ -1208,6 +1221,10 @@ pub struct RuntimeHotkeys {
     pub typed_text: Option<RuntimeHotkey>,
     /// Labs › Second dictation shortcut (macOS), while it is on and bound.
     pub second_dictation: Option<RuntimeHotkey>,
+    /// Labs › Stacks' note shortcut (macOS), while it is on and bound.
+    pub stack_note: Option<RuntimeHotkey>,
+    /// Labs › Stacks' paste shortcut (macOS), while it is on and bound.
+    pub stack_paste: Option<RuntimeHotkey>,
     /// Toggle mode's cancel shortcut. Not among [`RuntimeHotkeys::all`]:
     /// Hex takes it only while a toggled recording runs.
     pub cancel: Option<RuntimeHotkey>,
@@ -1215,7 +1232,7 @@ pub struct RuntimeHotkeys {
 
 impl RuntimeHotkeys {
     /// Every shortcut Hex matches, for suppression and chord evidence.
-    pub fn all(self) -> [Option<RuntimeHotkey>; 8] {
+    pub fn all(self) -> [Option<RuntimeHotkey>; 10] {
         [
             Some(self.dictation),
             self.paste_last,
@@ -1225,6 +1242,8 @@ impl RuntimeHotkeys {
             self.raw_dictation,
             self.typed_text,
             self.second_dictation,
+            self.stack_note,
+            self.stack_paste,
         ]
     }
 }
@@ -1241,6 +1260,8 @@ impl Default for RuntimeHotkeys {
             raw_dictation: None,
             typed_text: None,
             second_dictation: None,
+            stack_note: None,
+            stack_paste: None,
             cancel: None,
         }
     }
@@ -1318,5 +1339,122 @@ mod tests {
         let keys = PhysicalModifierKeys::from_usages([0x04, CAPS_LOCK_USAGE]);
         assert!(keys.is_held(CAPS_LOCK_USAGE));
         assert!(!keys.is_held(0x04));
+    }
+}
+
+pub fn hotkey_conflicts(
+    candidate: &HotkeyBinding,
+    others: impl IntoIterator<Item = HotkeyBinding>,
+) -> bool {
+    others
+        .into_iter()
+        .any(|binding| candidate.overlaps(&binding))
+}
+
+/// A shortcut Settings and `hex settings` record.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HotkeySlot {
+    Dictation,
+    PasteLast,
+    RawDictation,
+    /// Labs › Transform typed text's shortcut (Linux).
+    TypedText,
+    #[cfg(hex_capture)]
+    Capture,
+    /// Labs › Annotate 15 s replay shortcut (macOS 27+).
+    #[cfg(hex_capture)]
+    CaptureReplay,
+    /// Labs › Second dictation shortcut (macOS).
+    SecondDictation,
+    /// Labs › Terminal paste shortcut (Windows, Linux).
+    TerminalPaste,
+    /// Toggle mode's cancel shortcut.
+    Cancel,
+    /// Labs › Screenshots (macOS).
+    Screenshot,
+    /// Labs › Stacks: the note shortcut (macOS).
+    StackNote,
+    /// Labs › Stacks: the paste-stack shortcut (macOS).
+    StackPaste,
+}
+
+impl AppSettings {
+    /// Whether `binding` overlaps a shortcut `slot` must not share: the other
+    /// active shortcuts and, where meetings exist (macOS), meeting paste. The
+    /// two capture shortcuts never share a key, on or off, since turning
+    /// captures on can't pull them apart.
+    pub fn hotkey_in_use(&self, slot: HotkeySlot, binding: &HotkeyBinding) -> bool {
+        let mut others = Vec::new();
+        if slot != HotkeySlot::Dictation {
+            others.push(self.dictation_hotkey.clone());
+        }
+        if slot != HotkeySlot::PasteLast
+            && let Some(paste) = &self.paste_last_hotkey
+        {
+            others.push(paste.clone());
+        }
+        if slot != HotkeySlot::RawDictation
+            && let Some(raw) = &self.raw_dictation_hotkey
+        {
+            others.push(raw.clone());
+        }
+        if slot != HotkeySlot::TypedText
+            && cfg!(target_os = "linux")
+            && self.labs.typed_text
+            && let Some(typed) = &self.typed_text_hotkey
+        {
+            others.push(typed.clone());
+        }
+        if slot != HotkeySlot::Cancel {
+            others.push(self.cancel_hotkey.clone());
+        }
+        if slot != HotkeySlot::SecondDictation
+            && cfg!(target_os = "macos")
+            && self.labs.second_dictation_shortcut
+            && let Some(second) = &self.second_dictation_hotkey
+        {
+            others.push(second.clone());
+        }
+        if slot != HotkeySlot::TerminalPaste
+            && cfg!(any(target_os = "windows", target_os = "linux"))
+            && self.labs.terminal_paste_shortcut
+            && let Some(terminal) = &self.terminal_paste_hotkey
+        {
+            others.push(terminal.clone());
+        }
+        if cfg!(target_os = "macos") && self.meetings.available() {
+            others.push(HotkeyBinding::paste_meeting_default());
+        }
+        #[cfg(hex_capture)]
+        if slot != HotkeySlot::Capture && self.capture_on() {
+            others.push(self.capture.hotkey.clone());
+        }
+        #[cfg(hex_capture)]
+        if slot != HotkeySlot::CaptureReplay
+            && cfg!(target_os = "macos")
+            && self.capture_on()
+            && self.labs.annotate_replay
+            && let Some(replay) = &self.capture.replay_hotkey
+        {
+            others.push(replay.clone());
+        }
+        if slot != HotkeySlot::Screenshot && cfg!(target_os = "macos") && self.labs.screenshots {
+            others.push(self.screenshots.hotkey.clone());
+        }
+        if slot != HotkeySlot::StackNote
+            && cfg!(target_os = "macos")
+            && self.labs.stacks
+            && let Some(note) = &self.stack_note_hotkey
+        {
+            others.push(note.clone());
+        }
+        if slot != HotkeySlot::StackPaste
+            && cfg!(target_os = "macos")
+            && self.labs.stacks
+            && let Some(paste) = &self.stack_paste_hotkey
+        {
+            others.push(paste.clone());
+        }
+        hotkey_conflicts(binding, others)
     }
 }

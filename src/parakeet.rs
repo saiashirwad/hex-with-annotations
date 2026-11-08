@@ -81,6 +81,8 @@ pub enum DictationJobStage {
 pub enum PasteKind {
     LastTranscript,
     MeetingDelta,
+    /// Labs › Stacks: the active stack's Markdown.
+    Stack,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -95,6 +97,9 @@ pub enum TranscriptionTarget {
     Print,
     /// A printing stop of a raw dictation: the transcript as heard.
     RawPrint,
+    /// Labs › Stacks: the transcript joins the active stack as a note
+    /// instead of being pasted.
+    StackNote,
 }
 
 struct InferenceJob {
@@ -157,6 +162,8 @@ enum OutputJob {
     Paste {
         sequence: u64,
         kind: PasteKind,
+        /// The text a stack paste carries; the other kinds read their own.
+        text: Option<String>,
     },
 }
 
@@ -408,7 +415,7 @@ impl DictationWorker {
         let samples = clip.into_transcription_samples();
         crate::dictation::diagnostics::persist(&samples);
         let recording = match target {
-            TranscriptionTarget::Service => None,
+            TranscriptionTarget::Service | TranscriptionTarget::StackNote => None,
             _ => crate::history::Recording::keep(&samples),
         };
         let prepare_ms = submitted_at.elapsed().as_millis();
@@ -490,13 +497,27 @@ impl DictationWorker {
         self.submit_paste(PasteKind::MeetingDelta)
     }
 
+    /// Labs › Stacks: pastes `text` as Markdown, without touching the
+    /// transcript or the paste-last memory.
+    pub fn paste_stack(&self, text: String) -> Result<(), &'static str> {
+        self.submit_paste_with(PasteKind::Stack, Some(text))
+    }
+
     fn submit_paste(&self, kind: PasteKind) -> Result<(), &'static str> {
+        self.submit_paste_with(kind, None)
+    }
+
+    fn submit_paste_with(&self, kind: PasteKind, text: Option<String>) -> Result<(), &'static str> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let sequence = state.next_output_sequence()?;
         self.output_jobs
             .as_ref()
             .ok_or("dictation worker is unavailable")?
-            .try_send(OutputJob::Paste { sequence, kind })
+            .try_send(OutputJob::Paste {
+                sequence,
+                kind,
+                text,
+            })
             .map(|()| {
                 state.next_sequence += 1;
                 state.pending_pastes += 1;
@@ -1015,7 +1036,8 @@ fn finish_output(
                         }
                         TranscriptionTarget::Service
                         | TranscriptionTarget::Print
-                        | TranscriptionTarget::RawPrint => commit()
+                        | TranscriptionTarget::RawPrint
+                        | TranscriptionTarget::StackNote => commit()
                             .then_some(())
                             .ok_or_else(|| eyre!("dictation was cancelled")),
                     }
@@ -1068,7 +1090,7 @@ fn finish_output(
         OutputJob::Completed { job_id, .. } | OutputJob::Cancelled { job_id } => {
             WorkerEvent::Cancelled { job_id }
         }
-        OutputJob::Paste { kind, .. } => {
+        OutputJob::Paste { kind, text, .. } => {
             let result = match kind {
                 PasteKind::LastTranscript => last_transcript
                     .as_deref()
@@ -1080,6 +1102,16 @@ fn finish_output(
                     }),
                 PasteKind::MeetingDelta => {
                     paste_meeting_delta(paste).map_err(|error| error.to_string())
+                }
+                PasteKind::Stack => {
+                    let text = text.unwrap_or_default();
+                    if text.trim().is_empty() {
+                        Err("the stack is empty".to_string())
+                    } else {
+                        paste(&text, PasteMode::Standalone, &|| true)
+                            .map(|()| text)
+                            .map_err(|error| error.to_string())
+                    }
                 }
             };
             WorkerEvent::Pasted { kind, result }
@@ -1098,7 +1130,7 @@ fn record_history(
         TranscriptionTarget::Paste => HistoryKind::Dictation,
         TranscriptionTarget::RawPaste => HistoryKind::Raw,
         TranscriptionTarget::Print | TranscriptionTarget::RawPrint => HistoryKind::Printed,
-        TranscriptionTarget::Service => return,
+        TranscriptionTarget::Service | TranscriptionTarget::StackNote => return,
     };
     let draft = HistoryDraft {
         kind,
@@ -1458,6 +1490,7 @@ mod tests {
         let job = |sequence| OutputJob::Paste {
             sequence,
             kind: PasteKind::LastTranscript,
+            text: None,
         };
 
         assert!(outputs.push(job(1)).is_empty());
@@ -1540,6 +1573,7 @@ mod tests {
         let ready = outputs.push(OutputJob::Paste {
             sequence: 0,
             kind: PasteKind::LastTranscript,
+            text: None,
         });
         assert_eq!(ready.len(), 2);
         assert!(matches!(ready[1], OutputJob::Cancelled { .. }));

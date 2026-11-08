@@ -250,6 +250,23 @@ const KEYS: &[Key] = &[
         "Labs: folder screenshots are saved to; none uses the Desktop (macOS)",
     ),
     key(
+        "labs.stacks",
+        Kind::Bool,
+        "Labs: select text anywhere, say a note about it, and paste a whole stack as Markdown (macOS)",
+    ),
+    optional(
+        "stack_note_hotkey",
+        Kind::Shortcut(HotkeySlot::StackNote),
+        "Labs: hold to record a note on the front app's selection, control+option+n by \
+         default (macOS, with labs.stacks); none turns it off",
+    ),
+    optional(
+        "stack_paste_hotkey",
+        Kind::Shortcut(HotkeySlot::StackPaste),
+        "Labs: paste the active stack as Markdown and clear it, control+option+p by default \
+         (macOS, with labs.stacks); none turns it off",
+    ),
+    key(
         "show_dock_icon",
         Kind::Bool,
         "Keep Hex in the Dock when Settings is closed (macOS)",
@@ -1094,6 +1111,8 @@ pub fn apply(
         | "terminal_paste_hotkey"
         | "cancel_hotkey"
         | "screenshots.hotkey"
+        | "stack_note_hotkey"
+        | "stack_paste_hotkey"
         | "capture.hotkey"
         | "capture.replay_hotkey" => {
             let Kind::Shortcut(slot) = key.kind else {
@@ -1108,6 +1127,8 @@ pub fn apply(
                 HotkeySlot::TerminalPaste => candidate.terminal_paste_hotkey.as_ref(),
                 HotkeySlot::Cancel => Some(&candidate.cancel_hotkey),
                 HotkeySlot::Screenshot => Some(&candidate.screenshots.hotkey),
+                HotkeySlot::StackNote => candidate.stack_note_hotkey.as_ref(),
+                HotkeySlot::StackPaste => candidate.stack_paste_hotkey.as_ref(),
                 #[cfg(hex_capture)]
                 HotkeySlot::Capture => Some(&candidate.capture.hotkey),
                 #[cfg(hex_capture)]

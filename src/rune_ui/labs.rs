@@ -34,9 +34,14 @@ pub(super) static LABS_ICON: Icon = Icon {
 pub(super) fn main_panes(ui: &Ui) -> Vec<Pane> {
     let mut panes = vec![Pane::General, Pane::Output, Pane::History];
     #[cfg(hex_capture)]
-    let optional = [Pane::Meetings, Pane::Annotate, Pane::VoiceFilter];
+    let optional = [
+        Pane::Meetings,
+        Pane::Annotate,
+        Pane::Stacks,
+        Pane::VoiceFilter,
+    ];
     #[cfg(not(hex_capture))]
-    let optional = [Pane::Meetings, Pane::VoiceFilter];
+    let optional = [Pane::Meetings, Pane::Stacks, Pane::VoiceFilter];
     panes.extend(optional.into_iter().filter(|pane| pane.shown(ui)));
     panes
 }
@@ -569,6 +574,12 @@ fn rows(ui: &Ui) -> Vec<Row> {
                 tr("Screenshots"),
                 tr("Press ⌘⇧4 to capture an area, or press Space for a window. The shot goes on the clipboard and into a folder"),
             ));
+            rows.push(row(
+                Feature::Stacks,
+                Some(&super::stacks::STACKS_ICON),
+                tr("Stacks"),
+                tr("Select text anywhere, say a note about it, and paste a whole stack as Markdown"),
+            ));
             // macOS 27's SCClipBufferingOutput keeps a rolling 15 s display ring in replayd.
             #[cfg(hex_capture)]
             if Feature::AnnotateReplay.on_this_os() {
@@ -841,6 +852,7 @@ fn row_key(lab: Lab) -> &'static str {
         Feature::MeetingImport => "lab-meeting-import",
         Feature::MeetingDescriptiveFilenames => "lab-meeting-descriptive-filenames",
         Feature::ExpireMeetingAudio => "lab-expire-meeting-audio",
+        Feature::Stacks => "lab-stacks",
     }
 }
 

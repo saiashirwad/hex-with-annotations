@@ -165,6 +165,7 @@ pub(crate) fn event_summary(event: &VoiceEvent) -> String {
                 DictationPhase::Transcribing => "Dictation is being transcribed".into(),
                 DictationPhase::Pasted => text_or("Dictation paste sent", text),
                 DictationPhase::Printed => text_or("Dictation was printed", text),
+                DictationPhase::Noted => "Note added to a stack".into(),
                 DictationPhase::Edited => text_or("Selected text was edited", text),
                 DictationPhase::VoiceAction => text_or("Voice Action completed", text),
                 DictationPhase::Logged => text_or("Journal entry was saved", text),

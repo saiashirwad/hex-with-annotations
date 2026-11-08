@@ -162,6 +162,9 @@ impl Feature {
             Self::CapsLockDictation => {
                 "Press Caps Lock to start and stop dictation; its light shows when Hex records and transcribes"
             }
+            Self::Stacks => {
+                "Select text anywhere, say a note about it, and paste a whole stack as Markdown (macOS)"
+            }
         }
     }
 }

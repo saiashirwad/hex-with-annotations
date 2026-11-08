@@ -72,6 +72,21 @@ unsafe extern "C" {
     static kCFBooleanTrue: CfTypeRef;
 }
 
+/// The front application's selected text, for Labs › Stacks: the focused
+/// element's `AXSelectedText`, capped to a note's quote. `None` when the
+/// application doesn't expose a selection, or it is empty.
+pub fn selected_text(pid: i32) -> Option<String> {
+    const MAX_BYTES: usize = 8 * 1024;
+    let application = foreign_application(pid)?;
+    let focused = copy_element(&application, c"AXFocusedUIElement")?;
+    let text = copy_string(&focused, c"AXSelectedText")?;
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(text[..text.floor_char_boundary(MAX_BYTES)].to_string())
+}
+
 pub fn focused_window_title(pid: i32) -> Option<String> {
     let application = foreign_application(pid)?;
     let window = copy_element(&application, c"AXFocusedWindow")?;

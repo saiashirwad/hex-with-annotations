@@ -16,6 +16,8 @@ pub enum HotkeyAction {
     CancelShortcut,
     PasteLast,
     PasteMeeting,
+    /// Labs › Stacks: paste the active stack as Markdown and clear it.
+    PasteStack,
 }
 
 impl HotkeyAction {

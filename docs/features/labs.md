@@ -130,6 +130,12 @@ Feature             Pane  Toggle (settings.json, hex settings)   On: what it doe
 │                                        held Annotate key (a tap of it stops the recording)
 │                                        // checks: gnome_annotate_is_its_own_bit_* (labs.rs), meeting capsule xwayland decision reused
 │                                        // (linux/meeting_capsules.rs); Rune's xwayland tests; not run on a GNOME session
+├── Stacks          no    labs.stacks + stack_note_hotkey (default ⌃⌥N) + stack_paste_hotkey (default ⌃⌥P) (macOS)
+│                                        select text anywhere, hold the note shortcut to say what you think, and the quote and
+│                                        words join the active stack; the paste shortcut sends the stack as Markdown and clears
+│                                        it; the pane shows four stacks and records both shortcuts
+│                                        // checks: stacks::tests (store, bounds, Markdown), the_stack_note_shortcut_starts_and_finishes_its_capture,
+│                                        // every_control_in_every_scene_has_a_name; scene mac-stacks; not observed with a real selection and microphone
 ├── Screenshots     no    labs.screenshots + screenshots.hotkey (default ⌘⇧4) + screenshots.folder (macOS)
 │                                        the shortcut picks an area (Space: a window); the PNG goes on the clipboard, into the folder (Desktop), and into a corner thumbnail
 ├── Annotate 15 s replay no labs.annotate_replay + capture.replay_hotkey (macOS 27+)
