@@ -10,6 +10,8 @@ Hex as a Labs experiment.
 
 ## The shape
 
+![The Stacks pane with sample notes](stacks.png)
+
 ```ts
 Stacks (Labs, macOS)                       // sketch-stacks
 ├── Option: Settings › Labs › Stacks       // off by default
